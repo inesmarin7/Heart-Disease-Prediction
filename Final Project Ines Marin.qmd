@@ -1,0 +1,1183 @@
+---
+title: "Heart Disease Prediction Project - Ines Marin"
+format: 
+    dashboard:
+      logo: "C:/Users/inesM/Downloads/DULogo.png"
+      scrolling: true
+      theme: united
+embed-resources: true
+---
+```{r setup, include=FALSE,warning=FALSE}
+library(readr)
+library(GGally) #v2.2.1
+library(ggcorrplot) #v0.1.4.1
+library(MASS) #v7.3-60.2 for Boston data
+library(flexdashboard) #v0.6.2
+library(rpart) #v 4.1.19 Partition package to create trees
+library(rpart.plot) #v 3.1.1 creates nicer tree plots
+library(vip) #v0.3.2 vip()
+library(tidymodels) #v1.2.0
+  #library(parsnip) #v1.2.1 linear_reg(), set_engine(), set_mode(), fit(), predict()
+  #library(yardstick) #v1.3.1 metrics(), rac_auc(), roc_curve(), metric_set(), conf_matrix()
+  #library(dplyr) #v1.1.4 %>%, select(), select_if(), filter(), mutate(), group_by(), 
+    #summarize(), tibble()
+  #library(ggplot2) #v3.5.1 ggplot()
+  #library(broom) #v1.0.6 for tidy(), augment(), glance()
+  #library(rsample) #v1.2.1 initial_split()
+library(plotly) #v4.10.4
+library(performance) #v0.12.0 check_model
+library(see) #v0.8.4 for check_model plots from performance
+library(patchwork) #v1.2.0 for check_model plots from performance
+library(knitr) #v1.48 kable(digits=)
+library(kableExtra) #v1.4.0 kable_styling(font_size = 20)
+
+```
+
+```{r load_data}
+#Load the data
+df_heart <- read_csv('C:/Users/inesm/Downloads/heart.csv',show_col_types = FALSE )
+convert_to_factors <- function(df) {
+  df %>%
+    mutate(across(c(sex, cp, fbs, restecg, exang, slope, ca, thal, target), as.factor))
+}
+df_heart <- convert_to_factors(df_heart)
+```
+
+# Introduction
+## Row
+### Column {width=50%}
+::: {.card title="Executive Summary"}
+This project applies predictive modeling techniques to analyze cardiovascular health, focusing on two key objectives: **predicting maximum heart rate achieved** (thalach) and **classifying the presence of heart disease**. The analysis begins with an exploratory data assessment to understand variable distributions and relationships before implementing a range of regression and classification models.
+
+For thalach prediction, multiple regression approaches were explored, including **linear regression, Lasso regression, and regression trees**. Among these, the tuned regression tree model emerged as the most effective, achieving the lowest RMSE (14.56) and MAE (11.28) and the highest R² (0.56), significantly outperforming linear models, which explained only 39% of the variance. The Variable Importance Plot (VIP) revealed that **ST segment (slope), age, and ST depression** (oldpeak) were the most influential predictors of thalach, reinforcing their significance in cardiovascular assessments.
+
+For heart disease classification, **both logistic regression and classification trees were evaluated**. The classification trees outperformed logistic regression, achieving 93% accuracy, 91% sensitivity, and 95% specificity and precision. The ROC Curve confirmed this distinction, with the classification tree achieving an AUC of 0.98. The Variable Importance Plot (VIP) identified **chest pain type (cp), thalassemia status (thal), maximum heart rate (thalach)** as the most critical factors in predicting heart disease, aligning with established medical risk indicators.
+
+A key observation was that adjusting the classification threshold to 0.59 had minimal impact, as most predicted probabilities remained below this value, leading to unchanged classification results. This highlighted the importance of careful threshold selection and model tuning to optimize classification performance.
+
+In conclusion, this project **demonstrates the effectiveness of regression tree models for predicting maximum heart rate and classification trees for identifying heart disease**. The findings emphasize the importance of feature selection, model complexity, and cutoff optimization in improving predictive accuracy and clinical relevance.
+:::
+::: {.card title="The Project"}
+**The Problem Description**
+
+According to CDC, one person dies every 33 seconds from cardiovascular disease. Heart disease poses a significant health risk, making it crucial to identify its risk factors to implement proactive measures before it becomes critical. This report seeks to identify the key risk factors contributing to heart disease through an analysis of a dataset. This data collection is dated 1988 and consists of four databases: Cleveland, Hungary, Switzerland, and Long Beach V representing individual patient records. This dataset is designed to help predict the presence of heart disease based on various medical, demographic, and diagnostic information about the patients. 
+
+For this analysis, I will first examine the distribution of the variables and look for relationships. Second, I will conduct regression analysis to **predict maximum heart rate achieved (thalach)**, as it is a key indicator of cardiovascular fitness and heart function. This will include a variety of methods, such as **linear regression, lasso regression and regression trees** to determine the most significant predictors and identify the most effective model for understanding how different factors influence thalach.
+Third, I will perform **logistic regression** using backward elimination and **classification trees** to **predict the presence of heart disease**. This is a classification task, where the dependent variable (target) indicates whether heart disease is present or absent based on multiple attributes.
+Finally, I will end with summarizing the conclusions and reflections.
+
+**The Data**
+
+This dataset has 1026 rows and 14 variables. 
+
+**Data Sources**
+
+The data set used is from Kaggle (2019), titled [Heart Disease Dataset](https://www.kaggle.com/datasets/johnsmith88/heart-disease-dataset/data), provided by David Lapp.
+:::
+
+### Column {width=50%}
+::: {.card title="Variables"}
+**TO PREDICT WITH**
+
+* **age**: The age of the patient (in years) (Continuous)
+* **sex**: Gender of the patient: 0 = Female, 1 = Male (Categorical)
+* **cp**: Type of chest pain experienced: 1 = Typical angina (linked to heart issues), 2 = Atypical angina, 3 = Non-anginal pain, 4 = Asymptomatic (Categorical)
+* **trestbps**:  Resting blood pressure in mm Hg (Continuous)
+* **chol**: Serum cholestoral in mg/dl (Continuous)
+* **fbs**:  Fasting blood sugar > 120 mg/dl: true (1) or false (0). Binary indicator (Categorical)
+* **restecg**: Resting electrocardiogram results: 0 = Normal, 1 = ST-T wave abnormality, 2 = Left ventricular hypertrophy (heart muscle issues) (Categorical)
+* **thalach**: The maximum heart rate achieved by the patient during exercise (Continuous)
+* **exang**:  Binary indicator for exercise-induced angina: 1 = Yes, 0 = No (Categorical)
+* **oldpeak**:  ST depression induced by exercise relative to rest (Continuous)
+* **slope**: Slope of the peak exercise ST segment: 1 = Upsloping (normal), 2 = Flat (abnormality), 3 = Downsloping (risk) (Categorical)
+* **ca**: Number of major vessels (0-3) visible in fluoroscopy (Categorical)
+* **thal**: Thalassemia status: 3 = Normal, 6 = Fixed defect, 7 = Reversible defect. (Categorical)
+* **target**: Presence of heart disease: 0= No, 1 = Yes. (Categorical)
+
+**WE WANT TO PREDICT**
+
+* **thalach**: The maximum heart rate achieved by the patient during exercise
+* **target**: Presence of heart disease: 0= No, 1 = Yes
+
+:::
+
+
+# Data Exploration
+## Row
+### Column {width=30%}
+ 
+::: {.card title="Data Overview"}
+This dataset contains a variety of medical, demographic, and diagnostic attributes that help in predicting heart disease. I converted 8 categorical variables (sex, cp, fbs, restecg, exang, slope, ca, and thal) to factors. 
+
+Within the dataset, we can see that the age of patients ranges from 29 to 77 years, with a mean of approximately 54 years, reflecting a relatively young population. Additionally, there is a notable gender disparity, with 713 male patients compared to 312 female patients. Several critical cardiovascular indicators exhibit wide variability. For instance, ST depression (oldpeak), which measures heart stress during exercise, ranges from 0 to 6.2, with higher values indicating more severe heart conditions. The maximum heart rate achieved (thalach) spans from 71 to 202 beats per minute, with a median of 152 bpm.
+
+Looking at the overall distribution of heart disease cases, 526 out of 1025 patients (51.3%) have a heart condition, suggesting that more than half of the individuals in the dataset are affected. This highlights the importance of analyzing key risk factors that contribute to heart disease.
+:::
+
+
+### Column {width=40%}
+
+::: {.card title="View the Data Summaries" fill="false"}
+Below is the range of values for each variable. 
+
+```{r}
+summary(df_heart)
+```
+:::
+
+### Column {width=30%}
+
+```{r}
+#| title: Check Null values
+#| fill: false
+colSums(is.na(df_heart))
+```
+There are no missing values. 
+
+```{r}
+#| title: Heart Disease Barplot
+#| fill: false
+ggplot(df_heart, aes(x=target))+ geom_bar(fill="#F8766D", color="black", stat="count") + 
+    labs(title="Distribution of Target variable", x="Target", y="Frequency")
+```
+Patients with heart disease is slightly more than those without heart disease (48.7% vs 51.3%)
+
+# Data Visualization 
+## Row
+### Column {width=30%}
+
+::: {.card title="Response Variables Relationships with Predictors"}
+
+* **Relation between Age and Heart Disease:**
+Heart disease (target = 1) appears to affect individuals across a broader age range, with a tendency toward younger ages compared to those without heart disease. On the other hand, the absence of heart disease (target = 0) is more common among older individuals in this dataset. 
+
+
+* **Relation between Gender and Heart Disease:**
+Heart disease is observed in both genders but is more frequent among males. While females have a smaller population in the dataset, the proportion with heart disease seems relatively high compared to males. This suggests that heart disease affects both genders significantly but may impact males more in this dataset.
+
+
+* **Relation between Sex, Age and Heart Disease:**
+Among patients without heart disease (target = 0), there is a relatively even spread of males and females, though males appear slightly more frequent. However, for patients with heart disease (target = 1), males (blue) are much more prevalent than females (red), suggesting that men in this dataset are at a higher risk of developing heart disease. Additionally, age does not show a clear separation between those with and without heart disease, as patients with heart disease span a broad age range, indicating that age alone may not be the strongest predictor.
+
+
+* **Relation between Thalach, Age and Heart Disease:**
+Higher maximum heart rates are associated more frequently with the presence of heart disease (target = 1), and younger individuals may achieve higher heart rates compared to older individuals.
+
+:::
+### Column {width = 35%}
+
+```{r, fig.height =2.5}
+#| title: Relation between Age and Heart Disease
+ggplot(df_heart, aes(y = age, x = target, col = target)) +
+geom_boxplot() + 
+theme_minimal()
+```
+
+```{r, fig.height = 2.5}
+#| title:  Relation between Sex, Age and Heart Disease
+ggplot(df_heart, aes(x = target, y = age, fill = sex, col = sex)) +
+geom_jitter() +
+theme_minimal()
+```
+
+### Column {width = 35%}
+
+```{r, fig.height = 2.5}
+#| title:  Relation between Gender and Heart Disease
+ggplot(df_heart, aes(x=factor(sex), fill= factor(target))) +
+geom_bar()+
+labs(title="Distribution of Gender by Heart Disease", x="Gender(0=Female, 1=Male", y="Frequency")+
+scale_fill_manual(values= c("0" = "#F8766D", "1"= "#00BFC4"), labels= c("No Disease", "Disease"))+theme_minimal()
+```
+
+```{r, fig.height = 2.5}
+#| title:  Relation between Thalach, Age and Heart Disease
+ggplot(df_heart, aes(x = target, y = thalach, col = age)) +
+geom_jitter() +
+theme_minimal()
+```
+
+## Row {.tabset}
+
+### Correlation Matrix 
+```{r, fig.height = 4}
+#| title:  Correlation Matrix
+convert_to_numeric <- function(df) {
+  df %>%
+    mutate(across(c(sex, cp, fbs, restecg, exang, slope, ca, thal, target), as.numeric))
+}
+df_heart <- convert_to_numeric(df_heart)
+df_numeric <- df_heart %>% select(where(is.numeric))
+df_numeric <- df_numeric %>% select(target, everything())
+ggcorr(df_numeric, label = TRUE,       
+       label_size = 2,      
+       hjust = 1,           
+       layout_exp = 2,    
+       legend.size = 8)
+```
+The correlation matrix indicates that chest pain type (cp) and maximum heart rate achieved (thalach) have the strongest positive correlations with target, making them critical predictors of heart disease. Conversely, oldpeak (ST depression), number of major vessels (ca) and
+exercise-induced angina (exang) show strong negative correlations with target, highlighting their importance in predicting heart disease absence. There are no signs of multicollinearity among the independent variables, as no correlations between predictors exceed the threshold of ±0.6, ensuring stable regression models.
+
+### Interactive Histogram of Thalach
+```{r, fig.height = 3.5}
+ggplotly(ggplot(df_heart, aes(thalach)) + geom_histogram(bins = 15))
+```
+The histogram displays the distribution of maximum heart rate achieved (thalach) across the dataset. The distribution appears slightly right-skewed, with the majority of values concentrated between 100 and 180 bpm, and a peak around 150 bpm, indicating that most individuals in the dataset reach a heart rate in this range. There are relatively fewer cases at the lower and higher extremes. The presence of multiple peaks suggests some variability in the data, potentially due to differences in age, fitness level, or health conditions among the patients.
+
+### T-Test: Thalach by Heart Disease Presence
+```{r, fig.height = 3.5}
+t_test_result <- t.test(thalach ~ target, data = df_heart, var.equal = FALSE)
+print(t_test_result)
+```
+The extremely small p-value suggests that the difference in means is highly statistically significant. This means the observed difference is unlikely to be due to random chance and likely represents a real effect in the population. 
+
+
+# Regression Models
+## Row { .tabset}
+
+### Linear Regression Model predicting Thalach
+
+::: {.card title="Regression Summary"}
+
+For the prediction of the continuous variable value (thalach) we will use linear regression. The results are summarized in this section. 
+
+After examining the **final model**, we can observe some **issues** in the residual plots that indicate potential **concerns with our data**. The **homogeneity of variance** plot shows a curved pattern, suggesting that the **residuals are not evenly distributed across the fitted values**, meaning that the model may not be capturing the variability in thalach equally for all predictions. The normality of residuals plot indicates some deviation from normality, particularly in the tails, which **impact the validity of conclusions**. 
+
+Additionally, comparing the **full and pruned models**, we see that removing predictors with high p-values **did not significantly improve the fit**, as the R² remained relatively low (around 0.39), and the RMSE and MAE values remained nearly the same. This suggests that the linear neither the pruned model may not be the best fit for predicting thalach, and alternative approaches such as tree-based methods may improve predictive accuracy.
+
+**Effect on Thalach by the Predictor Variables**
+```{r, cache=TRUE}
+#create table summary of predictor changes
+predchang = tibble(
+  Variable = c('age', 'cp','trestbps','chol','exang','slope', 'target'),
+  Direction = c('Decrease','Increase','Increase','Increase', 'Decrease','Increase', 'Increase' )
+)
+predchang %>%
+  kable(align = 'l')
+```
+
+:::
+
+### Linear Regression Full
+
+```{r, cache=TRUE}
+#Model and capture metrics
+reg_spec <- linear_reg() %>% 
+   set_engine("lm") %>% 
+   set_mode("regression") 
+reg_fit <- reg_spec %>%  
+   fit(thalach~ .,data = df_heart)
+
+pred_reg_fit <- augment(reg_fit, df_heart)
+
+#Fit the model
+curr_metrics <- pred_reg_fit %>%
+  metrics(truth=thalach,estimate=.pred)
+results_reg <- tibble(model = "Linear Model Full",
+                  RMSE = curr_metrics[[1,3]],
+                  MAE = curr_metrics[[3,3]],
+                  RSQ = curr_metrics[[2,3]]) 
+
+```
+
+::: {.card title="Analysis Summary"}
+
+We can see that our initial linear model achieves an **R-squared of 39%**, indicating that it explains a small to moderate portion of the variability in the response variable. Analyzing the residual plots suggests that the residuals are mostly normal, though there is a slight curvature in the residual vs. fitted values plot and some skew in the residual distribution.
+
+After examining the model coefficients, we determine that some **predictors do not significantly contribute to predicting the thalach** (p values > 0.05). Consequently, we create a pruned model by removing these less significant predictors. This pruning step aims to simplify the model, potentially improving interpretability and the model in general.
+
+
+```{r, cache=TRUE}
+#Metrics
+results_reg %>%
+  kable(digits = 2) 
+#Residual Histogram
+reg_fit %>%
+  check_model(check=c('normality','linearity'))
+
+```
+
+:::
+
+```{r}
+#| title: The Full Regression Model Coefficients
+tidy(reg_fit) %>%
+  kable(digits=2) 
+```
+
+### Linear Regression Pruned Final Model
+
+```{r}
+#Model and capture metrics
+reg2_fit <- reg_spec %>%
+   fit(thalach~ .-fbs -sex -restecg -oldpeak -ca -thal,data = df_heart)
+ 
+ pred_reg2_fit <- augment(reg2_fit,df_heart)
+  curr_metrics <- pred_reg2_fit %>%
+  metrics(truth=thalach,estimate=.pred)
+results_new <- tibble(model = "Linear Pruned Final Model",
+                  RMSE = curr_metrics[[1,3]],
+                  MAE = curr_metrics[[3,3]],
+                  RSQ = curr_metrics[[2,3]])
+results_reg <- bind_rows(results_reg, results_new)
+reg2_mae <- curr_metrics %>%
+  filter(.metric=='mae') %>%
+  pull(.estimate)
+```
+
+::: {.card title="Analysis Summary"}
+
+The analysis of the **pruned model** reveals potential concerns with **heteroscedasticity** and **non-linearity**, which may impact the model's reliability. The homogeneity of variance plot (residuals vs. fitted values) shows a curved trend line rather than a flat horizontal one, suggesting that the variance of residuals is not constant across predicted values. This heteroscedasticity implies that the model may perform better for some ranges of fitted values than others, leading to unreliable predictions.This suggests that the relationship between the predictors and the dependent variable **cannot be fully captured by a simple linear model**. On the other hand, the normality of residuals plot indicates that residuals are approximately normal with some skew.
+As the pruned model removes unnecessary predictors, it might be preferable for simplicity and interpretability.
+
+```{r}
+#Metrics
+#Capture the predictions and metrics
+results_reg %>%
+  kable(digits=3)
+#Assumptions Linearity and Normality 
+reg2_fit %>%
+  check_model(check=c('normality','homogeneity'))
+```
+
+:::
+
+```{r}
+#| title: The Final Regression Model Coefficients
+tidy(reg2_fit) %>%
+  kable(digits=2)
+```
+
+```{r, cache=TRUE}
+#| title: Compare actual (thalach) vs predicted (y_hat) for pruned regression model
+#Plot the Actual Versus Predicted Values
+ggplotly(ggplot(data = pred_reg2_fit,
+            aes(x = .pred, y = thalach)) +
+          geom_point(col = "#F8766D") +
+            geom_abline(slope = 1) +
+            ggtitle(paste("Pruned Regression with MAE",round(reg2_mae,2))))
+```
+
+## Row { .tabset}
+### Lasso Regression predicting thalach
+
+::: {.card title="Lasso Regression Summary"}
+
+After evaluating the data using **linear regression**, there was potential issues with **non-linearity and heteroscedasticity**, which affected the model's predictive performance. To better capture complex relationships between predictors and the target variable, I implemented a **lasso regression model** with **penalty of 0.1** and a **lasso tuned regression model** with trained/test data.
+
+The analysis of the Lasso regression model highlights the impact of regularization strength on model performance. Excessive penalization (lambda values of 10 or 250) led to over-regularization. By adjusting the **penalty to 0.1**, the model retained important predictors while still mitigating overfitting. **The residual vs. predicted plot** indicates that while the model performs reasonably well, there **may be some heteroscedasticity**, as residuals are not uniformly distributed across predicted values. This suggests that certain ranges of the target variable may be predicted with greater accuracy than others, potentially impacting reliability.
+
+The **final lasso tuned model** with training/test data gets alike metrics but as the model with λ = 0.1 has higher R² while maintaining similar numbers of RMSE and MAE, it is the better choice. This model balances regularization and predictive power, making it preferable over the more constrained λ = 1 model, which shrinks coefficients more aggressively and slightly reduces prediction accuracy.
+
+**Effect on Thalach by the Predictor Variables by Lasso Regression Penalty 0.1**
+```{r, cache=TRUE}
+#create table summary of predictor changes
+predchang = tibble(
+  Variable = c('age', 'sex',  'cp','trestbps','chol','fbs', 'restecg', 'exang','olpeak','slope', 'ca', 'thal', 'target'),
+  Direction = c('Decrease','Increase','Increase','Increase','Increase', 'Increase','Decrease', 'Decrease', 'Decrease', 'Increase', 'Decrease', 'Increase','Increase')
+)
+predchang %>%
+  kable(align = 'l')
+```
+
+:::
+
+### Lasso Regression Penalty 0.1
+
+::: {.card title="Analysis Summary"}
+
+We can see that our **Lasso regression model with a penalty of 0.1** achieves an **R-squared of 39%**, indicating that it explains a small to moderate portion of the variability in the response variable. Analyzing the residual plots suggests that while the residuals are mostly normal, there is some **heteroscedasticity present**, as the residuals are not uniformly distributed across predicted values. 
+
+Examining the model coefficients reveals that **some predictors contribute more significantly than others**, with certain variables having been shrunk close to zero due to the Lasso penalty. Initially, using a **penalty of 10 or 250** caused the model to be overly **restrictive**, shrinking all coefficients excessively and resulting in nearly identical predictions. This indicated **excessive regularization**, leading to a loss of meaningful relationships between predictors and the target variable.
+
+To address this issue, a **lower penalty of 0.1** was selected, allowing the model to retain important predictors while still applying regularization to mitigate overfitting. This adjustment **balances interpretability and predictive performance**.
+
+```{r}
+#Model and capture metrics
+#Define the model specification
+lasso_spec <- linear_reg(penalty=0.1,
+                       mixture=1) %>%
+               set_engine('glmnet') %>%
+               set_mode('regression')
+
+# Define a recipe for preprocessing
+lasso_recipe <- recipe(thalach ~ ., data = df_heart) %>%
+  step_normalize(all_numeric_predictors())
+
+# Create a workflow
+lasso_wf <- workflow() %>%
+  add_model(lasso_spec) %>%
+  add_recipe(lasso_recipe)
+
+# Fit the Lasso model to the dataset
+lasso_fit <- fit(lasso_wf, data = df_heart)
+
+# Store predictions
+pred_lasso_fit <- augment(lasso_fit, df_heart)
+
+curr_metrics <- pred_lasso_fit %>%
+  metrics(truth=thalach,estimate=.pred)
+results_lasso <- tibble(model = "Lasso Regression Penalty 0.1",
+                  RMSE = curr_metrics[[1,3]],
+                  MAE = curr_metrics[[3,3]],
+                  RSQ = curr_metrics[[2,3]])
+lasso_mae <- curr_metrics %>%
+  filter(.metric == "mae") %>%
+  pull(.estimate)
+
+
+results_reg <- bind_rows(results_reg, results_new, results_lasso)
+
+results_reg  %>%
+  kable(digits = 3)
+
+```
+:::
+
+::: {.card title="Table of Coefficients"}
+
+The Lasso regression model with a penalty of 0.1 retains key predictors while applying regularization to prevent overfitting. Among the most influential variables, **age (-7.47) and exang (-4.32)** show strong negative relationships, indicating that an increase in age and exercise-induced angina is associated with a lower predicted outcome. In contrast, **cp (2.41) and thal (1.07)** have positive coefficients, suggesting that chest pain type and thalassemia classification contribute to higher predictions.
+
+```{r}
+# View coefficients (only nonzero predictors will remain)
+tidy(lasso_fit) %>%
+   kable(digits = 2)
+
+
+```
+
+:::
+
+::: {.card title="Compare actual (thalach) vs predicted"}
+```{r}
+# Plot Actual vs. Predicted Values
+ggplot(pred_lasso_fit, aes(y = .pred, x = thalach)) + 
+  geom_point(col = "#F8766D") + 
+  geom_abline(col = "#00BFC4") + 
+  ggtitle("Predicted Thalach vs Actual Thalach",
+          subtitle = "Lasso Regression Penalty 0.1")
+
+```
+
+:::
+
+### Tuned Lasso Regression
+
+::: {.card title="Analysis Summary"}
+
+During the tuning process for the Lasso regression model, I initially encountered an issue where all predictions were constant, leading to errors in computing correlation-based metrics. This occurred because the penalty **(lambda) was too high**, causing excessive shrinkage of the coefficients and reducing model variability. By adjusting the **penalty range from 0.00001 to 0.1**, I allowed the model to retain more important predictors while still applying regularization to prevent overfitting. To ensure a robust evaluation, I implemented a **train-test split** (80% and 20%). This approach prevented data leakage and provided a realistic assessment of the model’s performance on unseen data. I selected the penalty value corresponding to the **lowest MAE** to optimize the model’s predictive performance. The **Mean Absolute Error (MAE)** represents the average absolute difference **between predicted and actual values**, making it a crucial metric for assessing model accuracy. I ensured that the final model was **tuned** to minimize prediction errors while maintaining regularization.
+
+```{r}
+# Split data into training (80%) and testing (20%)
+df_split <- initial_split(df_heart, prop = 0.8, strata = target)  # Ensures balanced class distribution
+df_train <- training(df_split)  # Training data
+df_test <- testing(df_split)  # Test data
+
+# Define the Lasso regression model with tunable penalty
+lasso_tuned_spec <- linear_reg(penalty = tune(), mixture = 1) %>%
+  set_engine("glmnet") %>%
+  set_mode("regression")
+
+# Create a workflow
+lasso_tuned_wf <- workflow() %>%
+  add_model(lasso_tuned_spec) %>%
+  add_recipe(lasso_recipe)
+
+# Create cross-validation folds
+cv_folds <- vfold_cv(df_train, v = 5)
+
+# Define a range of penalty values (small to large)
+lasso_grid <- grid_regular(penalty(range = c(0.00001, 0.1)), levels = 20)
+
+# Tune the penalty value using cross-validation
+lasso_tune <- tune_grid(
+  lasso_tuned_wf,
+  resamples = cv_folds,
+  grid = lasso_grid,
+  metrics = metric_set(yardstick::rmse, 
+yardstick::rsq, yardstick::mae)
+)
+
+# Get the lowest mae
+lowest_mae <- select_best(lasso_tune, metric = "mae")
+
+
+# Finalize the workflow with the best penalty based on lowest MAE
+final_lasso <- lasso_tuned_wf %>% 
+                finalize_workflow(lowest_mae)
+
+# Fit the final Lasso model on the training data
+final_lasso_fit <- final_lasso %>% 
+                   fit(df_heart)
+
+# Store predictions on the test set (same dataset for now, adjust if using a train-test split)
+pred_final_lasso_fit <- final_lasso_fit %>% 
+                        augment(df_test)
+
+curr_metrics <- pred_final_lasso_fit %>%
+  metrics(truth=thalach,estimate=.pred)
+
+results_lassotuned <- tibble(model = "Lasso Regression Tuned",
+                  RMSE = curr_metrics[[1,3]],
+                  MAE = curr_metrics[[3,3]],
+                  RSQ = curr_metrics[[2,3]])
+lasso_mae <- curr_metrics %>%
+  filter(.metric == "mae") %>%
+  pull(.estimate)
+
+# Print the lowest mae value
+lowest_mae
+
+results_reg <- bind_rows(results_reg, results_new, results_lasso, results_lassotuned) %>%
+  drop_na() %>%
+  distinct(model, .keep_all = TRUE)
+
+results_reg  %>%
+  kable(digits = 3)
+
+```
+:::
+
+::: {.card title="View the Coefficient table and Variable Importance"}
+
+The **Tuned Lasso regression model** applied regularization, reducing some coefficients to zero, indicating they were not strong predictors. **Key influential variables** include **age (-6.299) and exang (-3.717)**, which negatively impact the target, while **slope (4.537) and target (3.196)** have strong positive effects. We can see this in the Variable Importance Plot.
+```{r}
+final_lasso_fit %>%
+  extract_fit_parsnip() %>% #this is similar to $fit for workflow models
+  tidy() %>%
+  kable(digits =3)
+
+
+final_lasso_fit %>% 
+   extract_fit_parsnip() %>% 
+   vip(num_features = 10)
+```
+
+:::
+
+::: {.card title="Compare actual (thalach) vs predicted"}
+```{r}
+
+pred_final_lasso_fit %>%
+  ggplot(aes(y = .pred, x = thalach)) + 
+  geom_point(col = "#F8766D") +  # Dark red points
+  geom_abline(col = "#00BFC4") +  # Reference diagonal line
+  ggtitle("Predicted Thalach vs Actual Thalach",
+          subtitle = paste("Lasso Regression", "Lambda =", round(lowest_mae$penalty, 3)))
+
+```
+:::
+
+## Row { .tabset}
+
+### Regression Trees predicting thalach
+
+```{r}
+#Model and capture metrics
+#Define the model specification
+tree_reg_spec <- decision_tree() %>%
+  set_engine("rpart") %>%
+  set_mode("regression")
+#Fit the model
+tree1_fit <- tree_reg_spec %>%  
+   fit(thalach ~ .,data = df_heart)
+#Capture the predictions and metrics
+pred_tree1_fit <- augment(tree1_fit,df_heart)
+curr_metrics <- pred_tree1_fit %>%
+  metrics(truth=thalach,estimate=.pred)
+results_tree <- tibble(model = "Regression Tree Model",
+                  RMSE = curr_metrics[[1,3]],
+                  MAE = curr_metrics[[3,3]],
+                  RSQ = curr_metrics[[2,3]])
+tree1_mae <- curr_metrics %>%
+  filter(.metric=='mae') %>%
+  pull(.estimate)
+
+```
+
+::: {.card title="Regression Tree Summary"}
+
+After evaluating the data using **linear and lasso regression**, there was potential issues with **heteroscedasticity**, which affected the model's predictive performance. To better capture complex relationships between predictors and the target variable, I implemented a **regression tree model and a tuned regression tree model** that can automatically detect interactions and split the data into meaningful segments, improving prediction accuracy.
+
+Initially, the first regression tree resulted in improved performance over the linear models. The regression tree model achieved an **RMSE of 15.50** and an **R² of 0.55**, compared to the **linear regression and lasso regression model's RMSE of 17.89 and R² of 0.39**. This suggests that the tree model captures more variation in the data than linear regression.
+
+However, to further enhance performance, I **tuned the regression tree** with training/test split (80% and 20%) by optimizing the **cost complexity parameter** and **tree depth** using **cross-validation**. The **tuned regression tree model** significantly outperformed the previous models, with an RMSE of **14.56** an **MAE of 11.28**, and **an R² of 0.56**. The actual vs. predicted scatter plots show a stronger correlation in the tuned tree, meaning it generalizes better. By refining the model through tuning, we achieved **higher predictive power** while maintaining interpretability.
+:::
+
+### Regression Tree
+
+::: {.card title="Analysis Summary"}
+
+I will predict thalach with all the variables. The regression tree model shows better performance than the linear and lasso models.
+
+```{r}
+#Metrics
+
+results_reg <- bind_rows(results_reg, results_new, results_lasso, results_lassotuned, results_tree) %>%
+  drop_na() %>%
+  distinct(model, .keep_all = TRUE)
+
+results_reg  %>%
+  kable(digits = 3)
+```
+
+:::
+
+::: {.card title="View the Regression Tree and Variable Importance"}
+The regression tree has 15 leaf nodes. The variable importance plot shows that the top 3 most important features is slope (most influential), age and oldpeak.
+```{r}
+#Tree Output
+rpart.plot(tree1_fit$fit, roundint=FALSE)
+#VI Plot
+vip(tree1_fit)
+```
+
+:::
+
+::: {.card title="Compare actual (thalach) vs predicted (y_hat)"}
+
+```{r}
+#Plot the Actual Versus Predicted Values
+ggplotly(ggplot(data = pred_tree1_fit,
+            aes(x = .pred, y = thalach)) +
+  geom_point(col = "#F8766D") +
+  geom_abline(slope = 1) +
+  ggtitle(paste("Regression Tree with MAE",round(tree1_mae,2))))
+```
+:::
+
+
+### Tuned Regression Tree
+
+```{r}
+#Model and capture metrics
+#Define the model specification
+tree_tune_spec <- decision_tree(cost_complexity = tune(),
+                             tree_depth = tune()) %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+df_folds <- vfold_cv(df_train)
+tree_grid <- dials::grid_regular(cost_complexity(),
+                                   tree_depth(range = c(2, 6)),
+                                   levels = 5)
+tree2_wf <- workflow() %>%
+  add_model(tree_tune_spec) %>%
+  add_formula(thalach ~ .)
+#Tune on the grid of values
+tree2_rs <- tree2_wf %>% 
+  tune_grid(resamples = df_folds,
+            grid = tree_grid)
+#finalize the workflow
+final_tree_wf <- 
+  tree2_wf %>% 
+  finalize_workflow(select_best(tree2_rs, metric='rmse'))
+final_tree_fit <- 
+  final_tree_wf %>%
+  fit(data = df_train) %>%
+  extract_fit_parsnip() 
+#Capture the predictions and metrics
+pred_tree2_fit <- augment(final_tree_fit,df_test)
+curr_metrics <- pred_tree2_fit %>%
+  metrics(truth=thalach,estimate=.pred)
+results_tunedtree <- tibble(model = "Tuned Regression Tree Model",
+                  RMSE = curr_metrics[[1,3]],
+                  MAE = curr_metrics[[3,3]],
+                  RSQ = curr_metrics[[2,3]])
+tree2_mae = curr_metrics %>%
+  filter(.metric=='mae') %>%
+  pull(.estimate)
+
+```
+
+
+::: {.card title="Analysis Summary"}
+
+To see if tuning improve performance, I will use cross validation on the
+cost complexity and the tree depth. After tuning (39 leaf nodes, adjusted complexity parameters), the regression tree achieved the lowest RMSE and highest R², demonstrating that the model now explains 56% of the variance in the target variable.
+
+```{r}
+results_reg <- bind_rows(results_reg, results_new, results_lasso, results_lassotuned, results_tree, results_tunedtree) %>%
+  drop_na() %>%
+  distinct(model, .keep_all = TRUE)
+
+results_reg  %>%
+  kable(digits = 3)
+
+
+final_tree_fit$spec
+```
+
+:::
+
+::: {.card title="View the Regression Tree and Variable Importance"}
+The regression tree has 39 leaf nodes. Slope, age, and oldpeak are the dominant predictors for thalach, suggesting these factors have a strong relationship with a person's maximum heart rate during exercise. The presence of heart disease (target) also plays a role, reinforcing the medical link between cardiovascular conditions and heart rate response.
+```{r}
+#Tree Output
+rpart.plot(final_tree_fit$fit, roundint=FALSE)
+#VI Plot
+vip(final_tree_fit)
+```
+
+:::
+
+::: {.card title="Compare actual (thalach) vs predicted (y_hat) tuned tree"}
+```{r}
+ggplotly(ggplot(data = pred_tree2_fit,
+            aes(x = .pred, y = thalach)) +
+        geom_point(col = "#F8766D") +
+        geom_abline(slope = 1) +
+        ggtitle(paste("Regression Tuned Tree with MAE",round(tree2_mae,2))))
+```
+:::
+
+# Classification Analysis
+## Row { .tabset}
+### Logistic Regression
+
+::: {.card title="Logistic Summary: Predicting Heart Disease"}
+
+For the final model, I will use **logistic regression** to explore heart disease presence.
+From the variable importance plot, we can see that **males**, **number of major vessels** (ca2, ca3, ca4), **chest pain type** (cp2, cp3, cp4), and **ST depression** (oldpeak) are among the most **significant predictors** in the model. These variables play a critical role in determining heart disease risk, aligning with medical insights that suggest factors like chest pain, blood vessel count, and exercise-induced abnormalities are strong indicators of cardiovascular health. The **ROC curve** confirms that our logistic model performs well, with an **AUC of 0.91**, and adjusting the **cutoff to 0.74** provides a **balance between sensitivity (87%) and specificity (82%)**.
+
+```{r}
+#Model and capture metrics
+#Define the model specification
+df_heart <- convert_to_factors(df_heart)
+log_spec <- logistic_reg() %>%
+             set_engine('glm') %>%
+       set_mode('classification') 
+log_fit <- log_spec %>%
+              fit(target ~ ., data = df_heart)
+#Capture the predictions and metrics
+my_class_metrics <- metric_set(yardstick::accuracy, yardstick::specificity, yardstick::sensitivity, yardstick::precision)
+
+pred_log_fit <- augment(log_fit, df_heart)
+
+curr_metrics <- pred_log_fit %>%
+  my_class_metrics(truth=target,estimate=.pred_class)
+results_classification <- tibble(model = " Logistic Model",
+                  Accuracy = curr_metrics[[1,3]],
+                  Sensitivity = curr_metrics[[2,3]],
+                  Specificity = curr_metrics[[3,3]],
+                  Avg_Sens_Spec = (Sensitivity + Specificity)/2,
+                  Precision = curr_metrics[[4,3]])
+results_classification <- bind_rows(results_classification)
+class_tree1_sens <- curr_metrics %>%
+  filter(.metric=='sens') %>%
+  pull(.estimate)
+
+
+```
+
+:::
+
+::: {.card title="Pruned Logistic Regression Equation"}
+
+From the logistic regression equation, we observe that ca5 is a non-significant predictor with a p-value of 0.73. However, as a categorical predictor by nature, I decided to not make modifications as ca5 can be combined with the base category. It simplifies interpretation without losing valuable information. 
+
+```{r}
+df_heart <- df_heart %>%
+  mutate(target = factor(target, levels = c(2, 1), labels = c("Yes", "No")))
+
+class_recipe <- recipe(target ~ ., data = df_heart) %>%
+  step_normalize(all_numeric_predictors(), -all_nominal()) %>%
+  prep()
+df_class_norm <- bake(class_recipe, df_heart) %>%
+  mutate(target = df_heart$target) 
+df_class_norm <- df_class_norm %>%
+  mutate(
+    target = as.factor(target),
+    sex = as.factor(sex),
+    cp = as.factor(cp),
+    fbs = as.factor(fbs),
+    restecg = as.factor(restecg),
+    exang = as.factor(exang),
+    slope = as.factor(slope),
+    ca = as.factor(ca),
+    thal = as.factor(thal)
+  )
+
+#Fit the pruned model and capture new metrics
+log2_fit <- log_spec %>%
+              fit(target ~ .-slope -restecg -fbs -age -thal, data = df_heart)
+
+#Capture the predictions and metrics
+
+pred_log2_fit <- augment(log2_fit,df_class_norm)
+curr_metrics <- pred_log2_fit %>%
+  my_class_metrics(truth=target,estimate=.pred_class)
+results_classification1 <- tibble(model = "Pruned Logistic Model",
+                  Accuracy = curr_metrics[[1,3]],
+                  Sensitivity = curr_metrics[[2,3]],
+                  Specificity = curr_metrics[[3,3]],
+                  Avg_Sens_Spec = (Sensitivity + Specificity)/2,
+                  Precision = curr_metrics[[4,3]])
+results_classification <- bind_rows(results_classification, results_classification1)
+class_tree1_sens <- curr_metrics %>%
+  filter(.metric=='sens') %>%
+  pull(.estimate)
+```
+
+```{r}
+#Logistic Equation
+tidy(log2_fit$fit) %>%
+  kable(digits=2)
+```
+
+:::
+
+::: {.card title="Metrics and VI Plot"}
+```{r}
+#Metrics
+results_classification %>%
+  kable(digits = 2, align = 'l')
+
+#Confusion Matrix
+pred_log2_fit %>%
+  conf_mat(truth=target,estimate=.pred_class)
+
+#VI Plot
+vip(log2_fit)
+```
+
+:::
+
+### Checking the Logistic Cutoff
+::: {.card title="View the ROC Curve"}
+
+```{r}
+#ROC Curve
+#DO NOT EDIT FUNCTION
+ROC_graph <- function(pred_data, truth, probs, model_desc="", df_roc = ""){
+    #This function creates a ROC Curve. It will return a df_roc with values
+    #it used to create the graph. It will also add to a previous ROC curve
+    #The inputs are the prediction table (from augment()) and the columns for the
+    #truth and probability values. There is also an optional model description
+    #and a previous df_roc dataframe. The columns need to be strings (i.e., 'sales')
+    #Capture the auc value
+    curr_auc <- pred_data %>%
+                     roc_auc(truth = {{truth}}, {{probs}}) %>%
+                     pull(.estimate)
+    #Capture the thresholds and sens/spec
+    ###First choice creates a new df_roc table
+    if (mode(df_roc) == "character") { #if it is a tibble will be "list"
+        df_roc <- pred_data %>% roc_curve(truth = {{truth}}, {{probs}}) %>% 
+                          mutate(model = paste(model_desc,round(curr_auc,2)))
+    }
+    ###Second choice is if there is already a df_roc that was input
+    else {
+    df_roc <- bind_rows(df_roc,  #use if df_roc exists with other models
+                   pred_data %>% roc_curve(truth = {{truth}}, {{probs}}) %>% 
+                      mutate(model = paste(model_desc,round(curr_auc,2))))
+    }
+    #Plot the ROC Curve(s) 
+    print(ggplot(df_roc, 
+            aes(x = 1 - specificity, y = sensitivity, 
+                group = model, col = model)) +
+            geom_path() +
+            geom_abline(lty = 3)  +
+            scale_color_brewer(palette = "Dark2") +
+            theme(legend.position = "top") )
+    #Capture the roc values in a df to add additional ROC curves
+    return(df_roc)
+}
+
+df_roc_medv <- ROC_graph(pred_log2_fit,"target",".pred_Yes","log")
+```
+
+:::
+
+::: {.card title="Best Threshold "}
+
+```{r}
+ROC_threshold <- function(pred_data,truth,probs) {
+  #This function finds the cutoff with the max sum of sensitivity and specificity
+  #Created tidy version of:
+  #http://scipp.ucsc.edu/~pablo/pulsarness/Step_02_ROC_and_Table_function.html
+  #The inputs are the prediction table (from augment()) and the columns for the
+  #truth and estimate values. The columns need to be strings (i.e., 'sales')
+  roc_curve_tbl <- pred_data %>%
+                    roc_curve(truth = {{truth}}, {{probs}})
+  auc = pred_data %>%
+              roc_auc(truth = {{truth}}, {{probs}}) %>%
+              pull(.estimate)
+  best_row = which.max(roc_curve_tbl$specificity + roc_curve_tbl$sensitivity)
+  return(tibble(Best_Cutoff = round(pull(roc_curve_tbl[best_row,'.threshold']),4),
+         Sensitivity = round(pull(roc_curve_tbl[best_row,'sensitivity']),4),
+         Specificity =round(pull(roc_curve_tbl[best_row,'specificity']),4),
+         AUC_for_Model = round(auc,4)))
+}
+
+best_cut_log <- ROC_threshold(pred_log2_fit, 'target', '.pred_Yes')
+best_cut_log  %>%
+  kable(digits=2)
+
+#Adding a new cutoff prediction column
+
+pred_log2_fit <- pred_log2_fit %>%
+                    mutate(target_factor = factor(ifelse(target == 1, "Yes", "No"), levels = c("Yes", "No")))
+                                              
+# Confusion matrix for Logistic Cutoff 25%
+
+pred_log2_fit <- pred_log2_fit %>%
+  mutate(
+    target_factor = factor(target, levels = c("Yes", "No")),  # Ensure "Yes" first
+      pred_1_bestcut = factor(ifelse(.pred_Yes > best_cut_log[[1]], "Yes", "No"), levels = c("Yes", "No")))
+
+
+# Metrics
+curr_metrics <- pred_log2_fit %>%
+  my_class_metrics(truth=target_factor,estimate=pred_1_bestcut)
+results_new4 <- tibble(model = paste("Logistic Model Cutoff",round(best_cut_log[[1]],2)),
+                  Accuracy = curr_metrics[[1,3]],
+                  Sensitivity = curr_metrics[[2,3]],
+                  Specificity = curr_metrics[[3,3]],
+                  Avg_Sens_Spec = (Sensitivity + Specificity)/2,
+                  Precision = curr_metrics[[4,3]])
+results_classification <- bind_rows(results_classification, results_classification1 ,results_new4)%>%
+  distinct(model, .keep_all = TRUE)
+results_classification %>%
+  kable(digits = 2, align = 'l')
+```
+:::
+
+## Row { .tabset}
+### Classification Trees Summary
+
+::: {.card title="Classification Models"}
+
+When predicting the presence of heart disease (target = 1), I coded it so that "Yes" indicates a diagnosis of heart disease, while "No" indicates no heart disease. For this analysis, I performed both classification trees and logistic regression models to compare their predictive performance. Both models in the classification trees achieved a **sensitivity of 91%**, meaning they correctly identified **91% of individuals with heart disease**. Additionally, they demonstrated **high specificity (95%)** and an overall **accuracy of 93%**, making it a strong predictive tool. 
+When adjusting the classification threshold, we observed that modifying the cutoff to 0.59 had minimal impact on classification results. This occurred because most predicted probabilities were below 0.59, leading to similar classifications and unchanged performance metrics.**The precision** is **95%** and the **AUC is 98%**. Overall, both models have a strong predictive performance in detecting heart disease.
+:::
+
+::: {.card title="Classification Tree Summary"}
+
+I will use all the variables. For this model
+the cost complexity is set to .001.
+
+```{r}
+#Model and capture metrics
+
+tree_class_spec <- decision_tree(cost_complexity=.001) %>%
+                    set_engine("rpart") %>%
+                    set_mode("classification")
+
+#Fit the model
+class_tree1_fit <- tree_class_spec %>%
+   fit(target ~ .,data = df_class_norm)
+#Capture the predictions and metrics
+pred_class_tree1_fit <- augment(class_tree1_fit,df_class_norm)
+my_class_metrics <- metric_set(yardstick::accuracy, yardstick::sensitivity,
+                               yardstick::specificity, yardstick::precision)
+curr_metrics <- pred_class_tree1_fit %>%
+  my_class_metrics(truth=target,estimate=.pred_class)
+results_cls <- tibble(model = "Classification Tree Model",
+                  Accuracy = curr_metrics[[1,3]],
+                  Sensitivity = curr_metrics[[2,3]],
+                  Specificity = curr_metrics[[3,3]],
+                  Avg_Sens_Spec = (Sensitivity + Specificity)/2,
+                  Precision = curr_metrics[[4,3]])
+results_classification <- bind_rows(results_classification,results_classification1, results_new4,results_cls )
+results_classification <- distinct(results_classification)
+results_classification %>%
+  kable(digits=2, align = 'l')
+
+class_tree1_sens <- curr_metrics %>%
+  filter(.metric=='sens') %>%
+  pull(.estimate)
+
+#Confusion Matrix
+pred_class_tree1_fit %>%
+  conf_mat(truth=target,estimate=.pred_class)
+```
+
+:::
+
+::: {.card title="View the Classification Tree and Variable Importance"}
+
+The classification tree has 32 leaf nodes, each representing a final decision point in the model. The more splits the tree has, the more complex its decision-making process becomes. This tree structure helps classify individuals based on various health indicators, ultimately predicting whether a person has heart disease or not.
+Looking at the Variable Importance Plot (VIP), the higher the importance value, the greater the influence of the variable on the model's decision-making process. In this case, chest pain type (cp) is the most influential predictor, followed by thalassemia status (thal) and maximum heart rate achieved (thalach). These variables significantly impact the likelihood of heart disease, as they are key indicators used in medical assessments.
+```{r}
+#Tree Output
+rpart.plot(class_tree1_fit$fit, type=1, extra = 102, roundint=FALSE)
+#VI Plot
+vip(class_tree1_fit)
+```
+:::
+
+### Checking the Classification Tree Cutoff
+
+::: {.card title="View the ROC Curve"}
+
+```{r}
+#Plot the ROC curve
+#DO NOT EDIT FUNCTION
+ROC_graph <- function(pred_data, truth, probs, model_desc="", df_roc = ""){
+    #This function creates a ROC Curve. It will return a df_roc with values
+    #it used to create the graph. It will also add to a previous ROC curve
+    #The inputs are the prediction table (from augment()) and the columns for the
+    #truth and probability values. There is also an optional model description
+    #and a previous df_roc dataframe. The columns need to be strings (i.e., 'sales')
+    #Capture the auc value
+    curr_auc <- pred_data %>%
+                     roc_auc(truth = {{truth}}, {{probs}}) %>%
+                     pull(.estimate)
+    #Capture the thresholds and sens/spec
+    ###First choice creates a new df_roc table
+    if (mode(df_roc) == "character") { #if it is a tibble will be "list"
+        df_roc <- pred_data %>% roc_curve(truth = {{truth}}, {{probs}}) %>% 
+                          mutate(model = paste(model_desc,round(curr_auc,2)))
+    }
+    ###Second choice is if there is already a df_roc that was input
+    else {
+    df_roc <- bind_rows(df_roc,  #use if df_roc exists with other models
+                   pred_data %>% roc_curve(truth = {{truth}}, {{probs}}) %>% 
+                      mutate(model = paste(model_desc,round(curr_auc,2))))
+    }
+    #Plot the ROC Curve(s) 
+    print(ggplot(df_roc, 
+            aes(x = 1 - specificity, y = sensitivity, 
+                group = model, col = model)) +
+            geom_path() +
+            geom_abline(lty = 3)  +
+            scale_color_brewer(palette = "Dark2") +
+            theme(legend.position = "top") )
+    #Capture the roc values in a df to add additional ROC curves
+    return(df_roc)
+}
+#Sample Call
+df_roc_target <- ROC_graph(pred_class_tree1_fit,"target",".pred_Yes","log", df_roc_medv)
+```
+
+:::
+
+::: {.card title="Best Threshold "}
+
+The summary of descriptive statistics shows that while the model makes varied predictions, most probabilities are clustered around 0.5, with only the top 25% exceeding 0.97. Since half of the predictions are below 0.46, raising the classification cutoff to 0.59 has minimal impact, as many cases remain classified as "No." While some cases are confidently predicted as "Yes," they are relatively rare, leading to unchanged classification results and performance metrics.
+```{r}
+#Find Best Threshold cutoff
+ROC_threshold <- function(pred_data,truth,probs) {
+  #This function finds the cutoff with the max sum of sensitivity and specificity
+  #Created tidy version of:
+  #http://scipp.ucsc.edu/~pablo/pulsarness/Step_02_ROC_and_Table_function.html
+  #The inputs are the prediction table (from augment()) and the columns for the
+  #truth and estimate values. The columns need to be strings (i.e., 'sales')
+  roc_curve_tbl <- pred_data %>%
+                    roc_curve(truth = {{truth}}, {{probs}})
+  auc = pred_data %>%
+              roc_auc(truth = {{truth}}, {{probs}}) %>%
+              pull(.estimate)
+  best_row = which.max(roc_curve_tbl$specificity + roc_curve_tbl$sensitivity)
+  return(tibble(Best_Cutoff = round(pull(roc_curve_tbl[best_row,'.threshold']),4),
+         Sensitivity = round(pull(roc_curve_tbl[best_row,'sensitivity']),4),
+         Specificity =round(pull(roc_curve_tbl[best_row,'specificity']),4),
+         AUC_for_Model = round(auc,4)))
+}
+best_cut_ct <- ROC_threshold(pred_class_tree1_fit,'target', '.pred_Yes')
+summary(pred_class_tree1_fit$.pred_Yes)
+
+best_cut_ct %>%
+  kable(digits=2)
+
+#Adding a new cutoff prediction column
+pred_class_tree1_fit <- pred_class_tree1_fit %>%
+  mutate(
+    target_factor = factor(target, levels = c("Yes", "No")),  # Ensure "Yes" first
+    pred_1_bestcut = factor(ifelse(.pred_Yes > best_cut_ct[[1]], "Yes", "No"), levels = c("Yes", "No"))  # Apply cutoff
+  )
+
+# Confusion matrix for Classification Cutoff modified
+conf_matrix <- pred_class_tree1_fit %>%
+  conf_mat(truth = target_factor, estimate = pred_1_bestcut)
+
+# Metrics
+curr_metrics <- pred_class_tree1_fit %>%
+  my_class_metrics(truth=target_factor,estimate=pred_1_bestcut)
+results_new3 <- tibble(model = paste("Classification Tree Model Cutoff",round(best_cut_ct[[1]],2)),
+                  Accuracy = curr_metrics[[1,3]],
+                  Sensitivity = curr_metrics[[2,3]],
+                  Specificity = curr_metrics[[3,3]],
+                  Avg_Sens_Spec = (Sensitivity + Specificity)/2,
+                  Precision = curr_metrics[[4,3]])
+results_classification <- bind_rows(results_classification, results_classification1, results_new4,results_cls, results_new3)
+results_classification <- distinct(results_classification)
+results_classification %>%
+  kable(digits=2, align = 'l')
+```
+
+:::
+
+
+
+# Conclusion
+## Row
+
+::: {.card title="Summary and Reflection"}
+
+From the first analysis, I can confidently recommend **tuned regression tree model** for predicting **thalach** (maximum heart rate achieved). The tuned regression tree model achieves the lowest RMSE (14.56) and MAE (11.28) while achieving the highest R² (0.56), indicating that it explains **56% of the variance** in the model, significantly more than the linear models (39%). The predicted vs. actual plot further supports this conclusion, where the **tuned regression tree model (purple)** aligns more closely with the ideal diagonal line, suggesting **better prediction accuracy**. A key takeaway from the Variable Importance Plot (VIP) is that  **ST segment (slope), maximum heart rate (age), ST depression (oldpeak), are among the most influential predictors for modeling thalach**. These insights suggest that understanding these variables can enhance decision-making related to cardiovascular health.
+
+From the second analysis, we compared **the classification tree model** and **logistic regression model** to predict **the presence of heart disease**. The **classification tree cutoff 0.6 consistently outperforms logistic regression** in terms of accuracy (93%), sensitivity (91%), specificity (95%), and precision (95%), ensuring more accurate identification of individuals with and without heart disease. The ROC Curve confirms this distinction, with the classification tree having a higher **AUC (0.98)** compared to logistic regression. For the classification model, the Variable Importance Plot (VIP) highlights the most significant predictors of heart disease. The **top predictors are chest pain type (cp), thalassemia status (thal) and maximum heart rate (thalach)**. These factors strongly influence the classification of heart disease cases and align with established medical risk factors.
+
+*Reflection: One of the aspects I am most proud of in this project is my ability to work with a real-life dataset and analyze it using R. Given that this was my first experience coding and using a programming language, I feel a great sense of accomplishment in understanding data manipulation, modeling, and interpretation in R. Throughout the project, I built confidence in my ability to apply statistical techniques, and I am excited to use these skills in future projects*.
+
+*If I had another week to work on the project, I would focus on enhancing the predictive power of my models. One approach in the logistic regression would be combining predictors, such as integrating ca5 with the base model, to explore whether it improves classification performance. Additionally, I would experiment with other methods, such as Random Forest or Boosting, to compare their accuracy and robustness against the classification tree and logistic regression models. These methods could potentially improve generalizability and further optimize sensitivity and specificity in predicting heart disease*.
+
+:::
+
+## Row
+
+::: {.card title="Predicting Continuous Thalach Value"}
+In addition, if I compare the models for predicting thalach, we see that the pruned regression tree further enhances model performance, reducing MAE to 11.28. The R square is 56% and RMSE of 14.56.
+
+```{r}
+#Metrics
+results_reg <- bind_rows(results_reg, results_new, results_lasso, results_lassotuned, results_tree, results_tunedtree) %>%
+  drop_na() %>%
+  distinct(model, .keep_all = TRUE)
+
+results_reg  %>%
+  kable(digits = 3)
+
+```
+
+:::
+
+::: {.card title="Compare actual (Thalach) vs predicted (y_hat) tuned tree"}
+```{r}
+df_act_pred <- bind_rows(
+            pred_reg_fit %>% mutate(model = 'Linear Model'),
+            pred_reg2_fit %>% mutate(model = 'Linear Final Model'),
+            pred_lasso_fit %>% mutate(model = 'Lasso Penalty 0.1'), 
+       pred_final_lasso_fit %>% mutate(model = 'Lasso Tuned Model'), 
+            pred_tree1_fit %>% mutate(model = 'Regression Tree Model'),
+            pred_tree2_fit %>% mutate(model = 'Tuned Regression Tree Model'), 
+)
+ggplotly(ggplot(df_act_pred, aes(y = .pred, x = thalach, color=model)) +
+  geom_point() +
+    geom_abline(col = "gold") +
+    ggtitle("Predicted vs Actual Thalach") )
+```
+
+:::
+
+## Row
+
+::: {.card title="Predicting Categorical Target Value"}
+In predicting Heart Disease, the classification tree has higher precision (95%) for predicting heart disease cases (Yes), ensuring fewer false positives. It also achieves higher sensitivity (91%), meaning it correctly identifies more individuals with heart disease. Meanwhile, the logistic regression model has a lower sensitivity, specificity and precision. Given these results, the classification tree model is better.
+
+```{r}
+#Metrics
+results_classification %>%
+  kable(digits=2, align = 'l')
+```
+
+:::
+
+::: {.card title="ROC Curves"}
+```{r}
+#ROC Curve - note just redoes adding logistic again - the df_roc_medv
+#will actually have the logistic values doubled but the graph
+#will show the same
+df_roc_thalach <- ROC_graph(pred_log2_fit,"target",".pred_Yes","log", df_roc_target)
+```
+:::
